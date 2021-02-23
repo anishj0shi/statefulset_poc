@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sfs-service
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: sfs
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sfs-sample
+spec:
+  selector:
+    matchLabels:
+      app: sfs
+  serviceName: "sfs-service"
+  template:
+    metadata:
+      labels:
+        app: sfs
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: sfs
+          image: ko://github.com/anishj0shi/statefulset_poc/cmd
+          ports:
+            - containerPort: 8080
+
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sfs-hpa
+  labels:
+    app: sfs
+spec:
+  maxReplicas: 6
+  minReplicas: 4
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: sfs-sample
+  targetCPUUtilizationPercentage: 50
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: sfs-entry
+spec:
+  hosts:
+    - sfs-sample-0.sfs-service.test.svc.cluster.local
+    - sfs-sample-1.sfs-service.test.svc.cluster.local
+    - sfs-sample-2.sfs-service.test.svc.cluster.local
+    - sfs-sample-3.sfs-service.test.svc.cluster.local
+  location: MESH_INTERNAL
+  ports:
+    - name: http
+      number: 8080
+      protocol: TLS
+  resolution: DNS
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: mysql-mtls-peerauthn
+spec:
+  selector:
+    matchLabels:
+      app: sfs
+  mtls:
+    mode: PERMISSIVE
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: mysql-mtls-dr
+spec:
+  host: sfs-service
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
